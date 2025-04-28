@@ -1,5 +1,7 @@
-import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
+import { Client, GatewayIntentBits, EmbedBuilder, Collection } from "discord.js";
 import dotenv from "dotenv";
+import fs from "node:fs";
+import path from "node:path";
 
 dotenv.config();
 
@@ -12,7 +14,7 @@ const content = [
 	{ name: "vaca", imageLink: "./images/la_vaca_saturno.jpeg" },
 	{ name: "tripi", imageLink: "./images/trulimero.jpeg" },
 	{ name: "trulimero", imageLink: "./images/trulimero.jpeg" },
-    { name: "brasilini", imageLink: "./images/brasilini.png"}
+	{ name: "brasilini", imageLink: "./images/brasilini.png" },
 ];
 
 const client = new Client({
@@ -23,33 +25,46 @@ const client = new Client({
 	],
 });
 
+client.commands = new Collection();
+const commandsPath = path.join(__dirname, "commands");
+const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"));
+
+for (const file of commandFiles) {
+	const filePath = path.join(commandsPath, file);
+	const command = require(filePath);
+
+	if ("data" in command && "execute" in command) {
+		client.commands.set(command.data.name, command);
+	} else {
+		console.log(
+			`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`
+		);
+	}
+}
+
 client.once("ready", () => {
 	console.log(`Ready! Logged in as ${client.user.tag}`);
 });
 
-client.on("messageCreate", (message) => {
-	if (message.author.bot) return;
+client.on("interactionCreate", async (interaction) => {
+	if (!interaction.isChatInputCommand()) return;
 
-	if (message.content.startsWith("!random")) {
-		let randomIndex = Math.floor(Math.random() * content.length);
+	const command = interaction.client.commands.get(interaction.commandName);
 
-		message.reply({
-			content: content[randomIndex].name,
-			files: [content[randomIndex].imageLink],
-		});
+	if (!command) {
+		console.error(`No command matching ${interaction.commandName} was found.`);
+		return;
 	}
 
-	content.forEach((item) => {
-		const itemsName = item.name;
-		const itemImage = item.imageLink;
-
-		if (message.content.startsWith(`!${item.name}`)) {
-			message.reply({
-				content: itemsName,
-				files: [itemImage],
-			});
-		}
-	});
+	try {
+		await command.execute(interaction);
+	} catch (error) {
+		console.error(error);
+		await interaction.reply({
+			content: "There was an error while executing this command!",
+			ephemeral: true,
+		});
+	}
 });
 
 client.login(process.env.DISCORD_TOKEN);
